@@ -15,8 +15,7 @@ struct Config {
     files:      Vec<PathBuf>,
     output:     PathBuf,
     entry_size: u32,
-    version:    u32,
-    edition:    DxvkStateCacheEdition
+    version:    u32
 }
 
 impl Default for Config {
@@ -26,7 +25,6 @@ impl Default for Config {
             output:     PathBuf::from("output.dxvk-cache"),
             entry_size: 0,
             version:    0,
-            edition:    DxvkStateCacheEdition::Standard
         }
     }
 }
@@ -132,6 +130,10 @@ fn process_args() -> Config {
 }
 
 fn main() -> Result<(), Error> {
+
+    let toto = 0b01110;
+    println!("{}", toto);
+
     let mut config = process_args();
 
     print!("Merging files");
@@ -159,11 +161,6 @@ fn main() -> Result<(), Error> {
 
         if config.version == 0 {
             config.version = header.version;
-            config.edition = if header.version > LEGACY_VERSION {
-                DxvkStateCacheEdition::Standard
-            } else {
-                DxvkStateCacheEdition::Legacy
-            };
             config.entry_size = header.entry_size;
             println!("Detected state cache version v{}", header.version);
         }
@@ -180,25 +177,20 @@ fn main() -> Result<(), Error> {
 
         let mut omitted = 0;
         let entries_len = entries.len();
-        print!(
+        println!(
             "Merging {} ({}/{})... ",
             path.file_name().and_then(OsStr::to_str).unwrap(),
             i + 1,
             config.files.len()
         );
         loop {
-            let res = match config.edition {
-                DxvkStateCacheEdition::Standard => read_entry(&mut reader),
-                DxvkStateCacheEdition::Legacy => {
-                    read_entry_legacy(&mut reader, header.entry_size as usize)
-                },
-            };
-            match res {
+            match read_entry(&mut reader) {
                 Ok(e) => {
                     if e.is_valid() {
                         entries.insert(e.hash, e);
                     } else {
                         omitted += 1;
+                        println!("Invalid, omitting...");
                     }
                 },
                 Err(ref e) if e.kind() == ErrorKind::IoError(io::ErrorKind::UnexpectedEof) => break,
@@ -232,12 +224,9 @@ fn main() -> Result<(), Error> {
 
     let file = File::create(&config.output)?;
     let mut writer = BufWriter::new(file);
-    wrtie_header(&mut writer, header)?;
+    write_header(&mut writer, header)?;
     for (_, entry) in &entries {
-        match config.edition {
-            DxvkStateCacheEdition::Standard => write_entry(&mut writer, entry)?,
-            DxvkStateCacheEdition::Legacy => write_entry_legacy(&mut writer, entry)?
-        };
+        write_entry(&mut writer, entry)?
     }
 
     println!("Finished");
@@ -258,10 +247,11 @@ fn read_header<R: Read>(reader: &mut BufReader<R>) -> Result<DxvkStateCacheHeade
 }
 
 fn read_entry<R: Read>(reader: &mut BufReader<R>) -> Result<DxvkStateCacheEntry, Error> {
+
     let header = DxvkStateCacheEntryHeader {
-        stage_mask: reader.read_u8()?,
-        entry_size: reader.read_u24()? as u32
+        raw: reader.read_u32()?,
     };
+
     let mut entry = DxvkStateCacheEntry::with_header(header);
     reader.read_exact(&mut entry.hash)?;
     reader.read_exact(&mut entry.data)?;
@@ -269,24 +259,13 @@ fn read_entry<R: Read>(reader: &mut BufReader<R>) -> Result<DxvkStateCacheEntry,
     Ok(entry)
 }
 
-fn read_entry_legacy<R: Read>(
-    reader: &mut BufReader<R>,
-    size: usize
-) -> Result<DxvkStateCacheEntry, Error> {
-    let mut entry = DxvkStateCacheEntry::with_length(size);
-    reader.read_exact(&mut entry.data)?;
-    reader.read_exact(&mut entry.hash)?;
-
-    Ok(entry)
-}
-
-fn wrtie_header<W: Write>(
+fn write_header<W: Write>(
     writer: &mut BufWriter<W>,
     header: DxvkStateCacheHeader
 ) -> Result<(), Error> {
     writer.write_all(&MAGIC_STRING)?;
     writer.write_u32(header.version)?;
-    writer.write_u32(header.entry_size as u32)?;
+    writer.write_u32(header.entry_size)?;
 
     Ok(())
 }
@@ -295,22 +274,11 @@ fn write_entry<W: Write>(
     writer: &mut BufWriter<W>,
     entry: &DxvkStateCacheEntry
 ) -> Result<(), Error> {
-    if let Some(h) = &entry.header {
-        writer.write_u8(h.stage_mask)?;
-        writer.write_u24(h.entry_size)?;
-    }
+
+    writer.write_u32(entry.header.raw)?;
+
     writer.write_all(&entry.hash)?;
     writer.write_all(&entry.data)?;
-
-    Ok(())
-}
-
-fn write_entry_legacy<W: Write>(
-    writer: &mut BufWriter<W>,
-    entry: &DxvkStateCacheEntry
-) -> Result<(), Error> {
-    writer.write_all(&entry.data)?;
-    writer.write_all(&entry.hash)?;
 
     Ok(())
 }

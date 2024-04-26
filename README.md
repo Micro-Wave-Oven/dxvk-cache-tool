@@ -1,5 +1,11 @@
 # dxvk-cache-tool
 
+Fork of https://github.com/DarkTigrus/dxvk-cache-tool made to support the v17 cache format of dxvk.
+
+Note that the previous cache versions are not supported anymore.
+
+
+
 Standalone dxvk-cache merger
 
 Usage

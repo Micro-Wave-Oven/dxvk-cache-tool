@@ -8,6 +8,7 @@ pub enum ErrorKind {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct Error {
     kind:    ErrorKind,
     message: String
